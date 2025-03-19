@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC Dashboard</title>
+    <style>
+    </style>
+  </head>
+  <body>
+    {% if authenticated %}
+      <h1>MC Dashboard</h1>
+      <div id="Server info">
+        <h2>Server Info</h2>
+        <p>Server Name: {{ server_name }}</p>
+        <p>Server Version: {{ server_version }}</p>
+        <p>Server Time: {{ server_time }}</p>
+      </div>
+      <button id="logout-button">Logout</button>
+      <script>
+
+        const base_url = {% if subpath %}"/mc-dash" {% else %} "" {% endif %};
+
+        document
+          .getElementById("logout-button")
+          .addEventListener("click", () => {
+            window.location.href = base_url + "/logout";
+          });
+      </script>
+    {% else %}
+      <h1>Login</h1>
+
+      <form action={% if subpath %}"/mc-dash/login"{% else %}"/login"{% endif %} method="POST">
+        <input type="password" name="password" placeholder="Enter password" required />
+        <button type="submit">Login</button>
+      </form>
+    {% endif %}
+  </body>
+</html>

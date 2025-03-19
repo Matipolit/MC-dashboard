@@ -12,6 +12,10 @@ serde_json = "1"
 
 toml = "0.8"
 axum = {version = "0.8", features = ["macros", "ws"]}
+axum-extra = { version = "0.10.0", features = ["cookie"]}
 tera = "1.20"
 tokio = { version = "1", features = ["full"] }
-
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+dotenvy = "0.15"
+sha2 = "0.10"
