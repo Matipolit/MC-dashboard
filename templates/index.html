@@ -5,35 +5,93 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MC Dashboard</title>
     <style>
+      body{
+        font-family: "sans-serif";
+      }
+      #top-bar {
+        display: flex;
+        gap: 16px;
+        flex-direction: row;
+        justify-content: space-between;
+        background-color: lightcyan;
+        padding: 8px;
+      }
     </style>
   </head>
   <body>
-    {% if authenticated %}
+    <div id="top-bar">
       <h1>MC Dashboard</h1>
-      <div id="Server info">
-        <h2>Server Info</h2>
-        <p>Server Name: {{ server_name }}</p>
-        <p>Server Version: {{ server_version }}</p>
-        <p>Server Time: {{ server_time }}</p>
-      </div>
       <button id="logout-button">Logout</button>
-      <script>
+    </div>
+      <p>Server active: <span id="active"> {% if active %} Yes {% else %} No {% endif %}</span></p>
+      <div id="server-info"
+        {% if not active %}
+        style="display: none"
+        {% endif %}
+      >
+        <h2>Server Info</h2>
+        <p>Version: <span id="version"></span></p>
+        <p>Players: <span id="players"></span></p>
+      </div>
+      <button id="toggle-button"
+        onClick="toggleServer()"
+      >
+        {% if active %}
+        ⏸
+        {% else %}
+        ⏵
+        {% endif %}
+      </button>
+      <br>
+    <script>
 
-        const base_url = {% if subpath %}"/mc-dash" {% else %} "" {% endif %};
+      const base_url = {% if subpath %}"/mc-dash" {% else %} "" {% endif %};
 
-        document
-          .getElementById("logout-button")
-          .addEventListener("click", () => {
-            window.location.href = base_url + "/logout";
-          });
-      </script>
-    {% else %}
-      <h1>Login</h1>
-
-      <form action={% if subpath %}"/mc-dash/login"{% else %}"/login"{% endif %} method="POST">
-        <input type="password" name="password" placeholder="Enter password" required />
-        <button type="submit">Login</button>
-      </form>
-    {% endif %}
+      document
+        .getElementById("logout-button")
+        .addEventListener("click", () => {
+          window.location.href = base_url + "/logout";
+        });
+    </script>
   </body>
+  <script>
+  {% if running_on_subpath %}
+    let url_realtime = new URL("mc-dash/realtime-stats", window.location.href);
+  {% else %}
+    let url_realtime = new URL("realtime-stats", window.location.href);
+  {% endif %}
+    url_realtime .protocol = url_realtime .protocol.replace("http", "ws");
+
+    const players_element = document.getElementById("players");
+    const active_element = document.getElementById("active");
+    const version_element = document.getElementById("version");
+    const info_div = document.getElementById("server-info")
+    const toggle_button = document.getElementById("toggle-button");
+
+    let ws = new WebSocket(url_realtime.href);
+    ws.onmessage = (ev) => {
+      console.log("Event: " + ev.data);
+      let parsed = JSON.parse(ev.data);
+      let protocol_info = parsed.protocol_info;
+      if(protocol_info != null){
+        players_element.textContent = `${protocol_info.online_players} / ${protocol_info.max_players}`
+        version_element.textContent = protocol_info.version;
+      }
+
+      if(parsed.active){
+        active_element.textContent = "active";
+        info_div.style.display = "block";
+        toggle_button.textContent = "⏸"
+      }else{
+        active_element.textContent = "inactive";
+        info_div.style.display = "none";
+        toggle_button.textContent = "⏵"
+      }
+    };
+
+    function toggleServer(){
+      window.location.href = base_url + "/toggle";
+    }
+  
+  </script>
 </html>
