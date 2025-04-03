@@ -102,9 +102,16 @@ fn toggle_server_service(toggle_variant: String) -> bool {
 
 fn redirect_to(running_on_subpath: bool, destination: String) -> Redirect {
     if running_on_subpath {
-        Redirect::to(&format!("mc-dash/{}", destination))
+        // Remove any leading slashes
+        let trimmed_dest = destination.trim_start_matches('/');
+        // If the destination is empty (or was just "/"), return the subpath root.
+        if trimmed_dest.is_empty() {
+            Redirect::to("/mc-dash")
+        } else {
+            Redirect::to(&format!("/mc-dash/{}", trimmed_dest))
+        }
     } else {
-        Redirect::to(&format!("{}", destination))
+        Redirect::to(&destination)
     }
 }
 
@@ -117,7 +124,7 @@ async fn main() {
     }
     dotenv().expect(".env file not found");
 
-    let server_url = "localhost".to_owned();
+    let server_url = env::var("SERVER_URL").unwrap_or("localhost".to_owned());
     let password = env::var("PASSWORD").expect("PASSWORD not set");
     let run_on_subpath_env = env::var("RUN_ON_SUBPATH");
 
@@ -126,7 +133,7 @@ async fn main() {
     // Compute the hash of the password (we use this both for API and web authentication)
     let hashed_password = Sha256::digest(password);
 
-    let server_conf = Conf::create_with_port(&server_url, 25565);
+    let server_conf = Conf::create_with_port("localhost", 25565);
 
     let (server_broadcast, _) = broadcast::channel::<RealTimeData>(1);
 
@@ -153,6 +160,10 @@ async fn main() {
                     version: info.version.name,
                 })
             } else {
+                tracing::error!(
+                    "Error while getting server protocol info: {:?}",
+                    server_result
+                );
                 None
             };
 
@@ -205,10 +216,12 @@ async fn main() {
         Router::new().nest("/mc-dash", router)
     };
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
-    println!("listening on {}", listener.local_addr().unwrap());
+    let listener = tokio::net::TcpListener::bind(server_url).await.unwrap();
+    if !run_on_subpath {
+        println!("listening on {}", listener.local_addr().unwrap());
+    } else {
+        println!("listening on {}/mc-dash", listener.local_addr().unwrap());
+    }
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -272,7 +285,7 @@ async fn main_page_get(State(state): State<AppState>) -> Html<String> {
     let active = get_service_active();
     let mut context = tera::Context::new();
     context.insert("active", &active);
-    context.insert("running_on_subpath", &state.running_on_subpath);
+    context.insert("subpath", &state.running_on_subpath);
     Html(state.templates.render("index.html", &context).unwrap())
 }
 

@@ -45,7 +45,7 @@
       <br>
     <script>
 
-      const base_url = {% if subpath %}"/mc-dash" {% else %} "" {% endif %};
+      const base_url = {% if subpath %}"mc-dash" {% else %} "" {% endif %};
 
       document
         .getElementById("logout-button")
@@ -55,7 +55,7 @@
     </script>
   </body>
   <script>
-  {% if running_on_subpath %}
+  {% if subpath %}
     let url_realtime = new URL("mc-dash/realtime-stats", window.location.href);
   {% else %}
     let url_realtime = new URL("realtime-stats", window.location.href);
