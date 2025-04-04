@@ -65,7 +65,7 @@ struct ServerProtocolInfo {
     online_players: i32,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 struct PerformanceInfo {
     mem_total: f32,
     mem_used: f32,
@@ -124,6 +124,7 @@ fn get_performance_info(pid: String, cpus: usize) -> Option<PerformanceInfo> {
     let str_output = String::from_utf8(top_output).expect("Malformed output from top");
 
     let output = str_output.trim();
+    tracing::trace!("top output: {:?}", output);
     let re_mem = Regex::new(
         r"MiB Mem\s*:\s*([\d\.]+)\s+total,\s+([\d\.]+)\s+free,\s+([\d\.]+)\s+used,\s+([\d\.]+)\s+buff/cache"
     ).ok()?;
@@ -140,15 +141,21 @@ fn get_performance_info(pid: String, cpus: usize) -> Option<PerformanceInfo> {
     let mem_caps = re_mem.captures(output)?;
     let cpu_caps = re_cpu.captures(output)?;
 
+    tracing::trace!("got some regex captures");
+
     let mem_total_mib: f32 = mem_caps.get(1)?.as_str().parse().ok()?;
     let mem_used_mib: f32 = mem_caps.get(3)?.as_str().parse().ok()?;
 
     let mem_total = mem_total_mib / 1024.0;
     let mem_used = mem_used_mib / 1024.0;
 
+    tracing::trace!("parsed memory: total - {}, used - {}", mem_total, mem_used);
+
     // Parse CPU percentages.
     let cpu_idle: f32 = cpu_caps.get(3)?.as_str().parse().ok()?;
     let cpu_used = 100.0 - cpu_idle;
+
+    tracing::trace!("parsed cpu: used - {}", cpu_used);
 
     // Now, find the minecraft (java) process line.
     // We assume it's the only line whose last token is "java".
@@ -160,13 +167,27 @@ fn get_performance_info(pid: String, cpus: usize) -> Option<PerformanceInfo> {
         // Skip header lines that don't have at least 12 tokens.
         let tokens: Vec<&str> = line.split_whitespace().collect();
         if tokens.len() >= 12 && tokens.last()? == &"java" {
+            tracing::trace!("got the desired tokens: {:?}", tokens);
             // Expected columns for top process table:
             // [0] PID, [1] USER, [2] PR, [3] NI, [4] VIRT, [5] RES, [6] SHR,
             // [7] S, [8] %CPU, [9] %MEM, [10] TIME+, [11] COMMAND
-            let res_kb: f32 = tokens[5].parse().ok()?; // RES in kB
+            if tokens[5].ends_with("g") {
+                let mem_stripped = tokens[5].strip_suffix("g");
+                if let Some(mem) = mem_stripped {
+                    let res_gb: f32 = mem.parse().ok()?;
+                    mem_used_mc = Some(res_gb);
+                }
+            } else {
+                let res_kb: f32 = tokens[5].parse().ok()?; // RES in kB
+                mem_used_mc = Some(res_kb / (1024.0 * 1024.0)); // convert kB -> GB
+            }
             let proc_cpu: f32 = tokens[8].parse().ok()?; // %CPU for the process
-            mem_used_mc = Some(res_kb / (1024.0 * 1024.0)); // convert kB -> GB
             cpu_percent_mc = Some(proc_cpu / (cpus as f32));
+            tracing::trace!(
+                "got mc info: mem - {:?}, cpu - {:?}",
+                mem_used_mc,
+                cpu_percent_mc
+            );
             break;
         }
     }
@@ -218,7 +239,7 @@ fn redirect_to(running_on_subpath: bool, destination: String) -> Redirect {
 async fn main() {
     if cfg!(debug_assertions) {
         tracing_subscriber::fmt()
-            .with_max_level(Level::DEBUG)
+            .with_max_level(Level::TRACE)
             .init();
     }
     dotenv().expect(".env file not found");
@@ -276,7 +297,9 @@ async fn main() {
                 let pid_opt = get_service_pid();
                 tracing::trace!("getting performance info for pid: {:?}", pid_opt);
                 if let Some(pid) = pid_opt {
-                    get_performance_info(pid, cpus)
+                    let info = get_performance_info(pid, cpus);
+                    tracing::debug!("Performance info: {:?}", info);
+                    info
                 } else {
                     tracing::error!("Could not get PID!");
                     None
