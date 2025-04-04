@@ -5,44 +5,145 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MC Dashboard</title>
     <style>
-      body{
-        font-family: "sans-serif";
+      :root {
+          --color-dark: #cad3f5;
+          --bg-color-dark: #24273a;
+          --link-color-dark: #f0c6c6;
+          --link-hover-color-dark: #8aadf4;
+          --shiny-color-dark: #5b607866;
+          --card-background-color-dark: #363a4f;
+          --border-color-dark: #6e738d;
+
+          --color: #4c4f69;
+          --background-color: #eff1f5;
+          --background-color-light: #ccd0da;
+          --link-color: #7287fd;
+          --link-hover-color: #1e66f5;
+          --card-background-color: #9ca0b0;
+          --border-color: #7c7f93;
+          --shiny-color: #7c7f9366;
       }
+      html {
+        font-family: sans-serif;
+        max-width: 65rem;
+        margin: auto;
+        padding: 1rem;
+        background-color: var(--background-color);
+        color: var(--color);
+      }
+
+      .card {
+        text-decoration: none;
+        background-color: var(--card-background-color);
+        border: solid;
+        border-color: var(--border-color);
+        padding: 0.5rem;
+        border-radius: 0.4rem;
+        box-shadow: 0px 1px 4px rgba(0, 0, 0, 0.25);
+        border-width: thin;
+        height: 300px;
+      }
+
+      #server-info {
+        display: flex;
+        gap: 16px;
+        background-color: var(--background-color-light);
+        padding: 8px;
+        border-radius: 0.4rem;
+        flex-wrap: wrap;
+      }
+
       #top-bar {
         display: flex;
         gap: 16px;
         flex-direction: row;
         justify-content: space-between;
-        background-color: lightcyan;
+        background-color: var(--background-color-light);
         padding: 8px;
+        border-radius: 0.4rem;
       }
+
+      #charts {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      #top-info{
+        padding: 8px;
+        display: flex;
+        gap: 8px;
+      }
+
+      #toggle-button {
+        aspect-ratio: 1 / 1;        
+        font-size: larger;
+        width: 50px;
+      }
+
+      #active {
+        font-weight: 600;
+      }
+      button {
+        background-color: var(--card-background-color);
+        border-radius: 6px;
+        padding: 0.25rem;
+        border: solid;
+  
+        font-family: sans-serif;
+        border-color: var(--border-color);
+        color: var(--color);
+      }
+      button:hover{
+        background-color: var(--background-color);
+      }
+
+
+      
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <div id="top-bar">
       <h1>MC Dashboard</h1>
       <button id="logout-button">Logout</button>
     </div>
-      <p>Server active: <span id="active"> {% if active %} Yes {% else %} No {% endif %}</span></p>
+      <div id="top-info">
+        <p>Server active: <span id="active"> {% if active %} yes {% else %} no {% endif %}</span></p>
+
+        <button id="toggle-button"
+          onClick="toggleServer()"
+        >
+          {% if active %}
+          ⏸
+          {% else %}
+          ⏵
+          {% endif %}
+        </button>
+
+      </div>
       <div id="server-info"
         {% if not active %}
         style="display: none"
         {% endif %}
       >
-        <h2>Server Info</h2>
-        <p>Version: <span id="version"></span></p>
-        <p>Players: <span id="players"></span></p>
+        <div>
+          <h2>Server Info</h2>
+          <p>Version: <span id="version"></span></p>
+          <p>Players: <span id="players"></span></p>
+        </div>
+        <div id="charts">
+          <div class="card" id="cpu-chart-container">
+            <canvas id="cpu-chart" height="300"></canvas>
+          </div>
+          <div class="card" id="ram-chart-container">
+            <canvas id="ram-chart" height="300"></canvas>
+          </div>
+        </div>
+
+
       </div>
-      <button id="toggle-button"
-        onClick="toggleServer()"
-      >
-        {% if active %}
-        ⏸
-        {% else %}
-        ⏵
-        {% endif %}
-      </button>
-      <br>
     <script>
 
       const base_url = {% if subpath %}"mc-dash" {% else %} "" {% endif %};
@@ -55,6 +156,29 @@
     </script>
   </body>
   <script>
+  class FixedLengthQueue {
+    constructor(maxLength) {
+      this.maxLength = maxLength;
+      this.queue = [];
+    }
+
+    enqueue(item) {
+      if (this.queue.length >= this.maxLength) {
+        this.queue.shift(); // Remove the oldest element
+      }
+      this.queue.push(item);
+    }
+
+    dequeue() {
+      return this.queue.shift();
+    }
+
+    get items() {
+      return this.queue;
+    }
+  }
+
+
   {% if subpath %}
     let url_realtime = new URL("mc-dash/realtime-stats", window.location.href);
   {% else %}
@@ -67,7 +191,116 @@
     const version_element = document.getElementById("version");
     const info_div = document.getElementById("server-info")
     const toggle_button = document.getElementById("toggle-button");
+    const cpu_chart_element = document.getElementById("cpu-chart");
+    const ram_chart_element = document.getElementById("ram-chart");
 
+    const cpuCtx = cpu_chart_element.getContext("2d");
+    const ramCtx = ram_chart_element.getContext("2d");
+    Chart.defaults.color = '#4c4f69';
+
+    // chart setup
+
+      const cpuChart = new Chart(cpuCtx, {
+        type: 'line',
+        data: {
+          labels: [], // We'll fill in with indices
+          datasets: [
+            {
+              label: 'System CPU (%)',
+              data: [],
+              borderColor: '#e64553',
+              tension: 0.1,
+              fill: {target: 1, above: '#e6455344'},
+            },
+            {
+              label: 'Minecraft CPU (%)',
+              data: [],
+              borderColor: '#179299',
+              tension: 0.1,
+              fill: {target: 'origin', above: '#17929944'},
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              min: 0,
+              max: 100,
+              title: {
+                display: true,
+                text: '% CPU'
+              }
+            }
+          }
+        }
+      });
+
+      // Create the RAM chart: two datasets, one for overall RAM usage and one for Minecraft process RAM usage.
+      const ramChart = new Chart(ramCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'System RAM (GB)',
+              data: [],
+              borderColor: '#40a02b',
+              tension: 0.1,
+              fill: {target: 1, above: '#40a02b44'},
+            },
+            {
+              label: 'Minecraft RAM (GB)',
+              data: [],
+              borderColor: '#df8e1d',
+              tension: 0.1,
+              fill: {target: 'origin', above: '#df8e1d44'},
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              min: 0,
+              // We'll set max to the total system memory in GB when available.
+              title: {
+                display: true,
+                text: 'RAM (GB)'
+              }
+            }
+          }
+        }
+      });
+
+    // performance data
+
+    let sys_ram_amount = null;
+    const ram_history = new FixedLengthQueue(100);
+    const cpu_history = new FixedLengthQueue(100);
+
+    function updateCharts() {
+      // Use a simple index array as labels (you could also use timestamps)
+      const labels = cpu_history.items.map((_, i) => i);
+
+      // Update the CPU chart:
+      cpuChart.data.labels = labels;
+      cpuChart.data.datasets[0].data = cpu_history.items.map(item => item.cpu_used);
+      cpuChart.data.datasets[1].data = cpu_history.items.map(item => item.cpu_used_mc);
+      cpuChart.update();
+
+      // Update the RAM chart:
+      ramChart.data.labels = labels;
+      ramChart.data.datasets[0].data = ram_history.items.map(item => item.mem_used);
+      ramChart.data.datasets[1].data = ram_history.items.map(item => item.mem_used_mc);
+      // If the total system memory (sys_ram_amount) is known, update the y-axis maximum.
+      if (sys_ram_amount !== null) {
+        ramChart.options.scales.y.max = sys_ram_amount;
+      }
+      ramChart.update();
+    }
+    
+    
     let ws = new WebSocket(url_realtime.href);
     ws.onmessage = (ev) => {
       console.log("Event: " + ev.data);
@@ -79,14 +312,33 @@
       }
 
       if(parsed.active){
-        active_element.textContent = "active";
-        info_div.style.display = "block";
+        active_element.textContent = "yes";
+        info_div.style.display = "flex";
         toggle_button.textContent = "⏸"
       }else{
-        active_element.textContent = "inactive";
+        active_element.textContent = "no";
         info_div.style.display = "none";
         toggle_button.textContent = "⏵"
       }
+
+      const performance_info = parsed.performance_info;
+      if(performance_info != null){
+        if(sys_ram_amount == null){
+          sys_ram_amount = performance_info.mem_total;
+        };
+        const ram_element = {
+          "mem_used": performance_info.mem_used,
+          "mem_used_mc": performance_info.mem_used_mc
+        };
+        const cpu_element = {
+          "cpu_used": performance_info.cpu_used,
+          "cpu_used_mc": performance_info.cpu_used_mc,
+        };
+
+        ram_history.enqueue(ram_element);
+        cpu_history.enqueue(cpu_element);
+      }
+      updateCharts();
     };
 
     function toggleServer(){
